@@ -1,94 +1,157 @@
 // Filename: index.js
 // Combined code from all files
 
-import React, { useState, useEffect, useRef } from 'react';
-import { SafeAreaView, StyleSheet, Text, View, Button, Vibration, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { SafeAreaView, StyleSheet, View, Button, Image, Text } from 'react-native';
+import { Camera } from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
+import * as Permissions from 'expo-permissions';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 
-export default function App() {
-    const [seconds, setSeconds] = useState(0);
-    const [isRunning, setIsRunning] = useState(false);
-    const intervalRef = useRef(null);
+const filters = ['vintage', 'sepia', 'grayscale', 'invert', 'contrast'];
 
-    useEffect(() => {
-        if (isRunning) {
-            intervalRef.current = setInterval(() => {
-                setSeconds(prevSeconds => prevSeconds + 1);
-            }, 1000);
+const FilterComponent = ({ photoUri, setFilteredPhoto }) => {
+    const applyFilter = async (filter) => {
+        let manipResult;
+        switch (filter) {
+            case 'vintage':
+                manipResult = await manipulateAsync(
+                    photoUri,
+                    [{ resize: { width: 500 } }, { applyFilter: { name: 'Vintage' } }],
+                    { format: SaveFormat.JPEG }
+                );
+                break;
+            case 'sepia':
+                manipResult = await manipulateAsync(
+                    photoUri,
+                    [{ resize: { width: 500 } }, { applyFilter: { name: 'Sepia' } }],
+                    { format: SaveFormat.JPEG }
+                );
+                break;
+            case 'grayscale':
+                manipResult = await manipulateAsync(
+                    photoUri,
+                    [{ resize: { width: 500 } }, { applyFilter: { name: 'Grayscale' } }],
+                    { format: SaveFormat.JPEG }
+                );
+                break;
+            case 'invert':
+                manipResult = await manipulateAsync(
+                    photoUri,
+                    [{ resize: { width: 500 } }, { applyFilter: { name: 'Invert' } }],
+                    { format: SaveFormat.JPEG }
+                );
+                break;
+            case 'contrast':
+                manipResult = await manipulateAsync(
+                    photoUri,
+                    [{ resize: { width: 500 } }, { changeContrast: { contrast: 2.0 } }],
+                    { format: SaveFormat.JPEG }
+                );
+                break;
+            default:
+                manipResult = await manipulateAsync(
+                    photoUri,
+                    [{ resize: { width: 500 } }],
+                    { format: SaveFormat.JPEG }
+                );
         }
-
-        return () => clearInterval(intervalRef.current);
-    }, [isRunning]);
-
-    useEffect(() => {
-        if (isRunning) {
-            if (seconds % 5 === 0) {
-                // Hard Haptic feedback every 5 seconds
-                Vibration.vibrate(1000);
-            } else {
-                // Rigid Haptic feedback every second
-                Vibration.vibrate([0, 500]);
-            }
-        }
-    }, [seconds, isRunning]);
-
-    const startStopTimer = () => {
-        if (isRunning) {
-            clearInterval(intervalRef.current);
-        }
-        setIsRunning(!isRunning);
-    };
-
-    const resetTimer = () => {
-        clearInterval(intervalRef.current);
-        setIsRunning(false);
-        setSeconds(0);
+        setFilteredPhoto(manipResult.uri);
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <ScrollView contentContainerStyle={styles.scrollView}>
-                <View style={styles.timerContainer}>
-                    <Text style={styles.timerText}>{seconds} seconds</Text>
-                </View>
-                <View style={styles.buttonContainer}>
-                    <Button title={isRunning ? "Stop" : "Start"} onPress={startStopTimer} />
-                    <Button title="Reset" onPress={resetTimer} />
-                </View>
-            </ScrollView>
-        </SafeAreaView>
+        <View style={styles.filterContainer}>
+            {filters.map(filter => (
+                <Button key={filter} title={filter} onPress={() => applyFilter(filter)} />
+            ))}
+        </View>
     );
-}
+};
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        paddingTop: 50,
     },
-    scrollView: {
-        flexGrow: 1,
-        justifyContent: 'center',
+    camera: {
+        flex: 1,
+        justifyContent: 'flex-end',
         alignItems: 'center',
-    },
-    timerContainer: {
-        backgroundColor: '#fff',
-        padding: 20,
-        borderRadius: 10,
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOpacity: 0.2,
-        shadowOffset: { width: 2, height: 2 },
-        shadowRadius: 8,
-        elevation: 5,
-        marginBottom: 20,
-    },
-    timerText: {
-        fontSize: 48,
-        fontWeight: 'bold',
     },
     buttonContainer: {
+        backgroundColor: 'transparent',
         flexDirection: 'row',
-        justifyContent: 'space-around',
-        width: '60%',
-    }
+        margin: 20,
+    },
+    photoContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    photo: {
+        width: '100%',
+        height: '80%',
+        marginBottom: 20,
+    },
+    filterContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        marginBottom: 20,
+    },
 });
+
+export default function App() {
+    const [hasPermission, setHasPermission] = useState(null);
+    const [cameraRef, setCameraRef] = useState(null);
+    const [photo, setPhoto] = useState(null);
+    const [filteredPhoto, setFilteredPhoto] = useState(null);
+
+    const requestPermissions = async () => {
+        const { status } = await Camera.requestCameraPermissionsAsync();
+        const mediaLibraryStatus = await MediaLibrary.requestPermissionsAsync();
+        setHasPermission(status === 'granted' && mediaLibraryStatus.status === 'granted');
+    };
+
+    useState(() => {
+        requestPermissions();
+    }, []);
+
+    const takePicture = async () => {
+        if (cameraRef) {
+            const { uri } = await cameraRef.takePictureAsync();
+            setPhoto(uri);
+        }
+    };
+
+    const savePhoto = async () => {
+        if (filteredPhoto) {
+            const asset = await MediaLibrary.createAssetAsync(filteredPhoto);
+            alert('Photo saved to gallery!');
+        }
+    };
+
+    if (hasPermission === null) {
+        return <Text>Requesting for permissions...</Text>;
+    }
+    if (hasPermission === false) {
+        return <Text>No access to camera</Text>;
+    }
+
+    return (
+        <SafeAreaView style={styles.container}>
+            {photo ? (
+                <View style={styles.photoContainer}>
+                    <Image source={{ uri: filteredPhoto || photo }} style={styles.photo} />
+                    <FilterComponent photoUri={photo} setFilteredPhoto={setFilteredPhoto} />
+                    <Button title="Save" onPress={savePhoto} />
+                    <Button title="Retake" onPress={() => setPhoto(null)} />
+                </View>
+            ) : (
+                <Camera style={styles.camera} type={Camera.Constants.Type.back} ref={setCameraRef}>
+                    <View style={styles.buttonContainer}>
+                        <Button title="Shoot" onPress={takePicture} />
+                    </View>
+                </Camera>
+            )}
+        </SafeAreaView>
+    );
+}
